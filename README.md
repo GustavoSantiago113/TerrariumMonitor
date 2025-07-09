@@ -14,24 +14,24 @@
 
 ## Terrarium
 
-- [] Hinged Acrylic Box with holes for cross-ventilation
+- [ ] Hinged Acrylic Box with holes for cross-ventilation
 - [X] Expanded Foam
-- [] Glue for foam
+- [ ] Glue for foam
 - [X] Tree Bark
 - [X] Black paper
-- [] Transparent Tape
-- [] Branches
+- [ ] Transparent Tape
+- [ ] Branches
 - [X] Sand
-- [] Substrate
-- [] Moss
+- [ ] Substrate
+- [ ] Moss
 
 ## Hardware
 
-- [] ESP32-CAM
+- [ ] ESP32-CAM
 - [X] Light Sensor
 - [X] White LEDs
-- [] Temperature and Moisture sensor
+- [ ] Temperature and Moisture sensor
 - [X] Resistors
-- [] Cable for powering
-- [] PCB
+- [ ] Cable for powering
+- [ ] PCB
 - [] 3D-printed case for the circuit 
