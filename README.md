@@ -1,6 +1,6 @@
 **<center>Terrarium Monitor</center>**
 
->An integration of ESP32-CAM, Firebase and Flutter to monitor my pet spider
+>An integration of ESP32-CAM, Firebase and Flutter to monitor my spider pet 
 
 <hr>
 
@@ -10,6 +10,7 @@
   - [Terrarium](#terrarium)
   - [Hardware](#hardware)
 - [Terrarium](#terrarium-1)
+- [Workflow](#workflow)
 
 # List of Materials
 
@@ -34,11 +35,19 @@
 - [X] Resistors
 - [] Cable and charger for powering
 - [] PCB
-- [] 3D-printed case for the circuit 
-
+- [] Motor
+- [] 3D-printed motor case and propellers
+- [] 3D-printed case for the circuit
+- [] 3D printed structure for the White LEDs "strip"
 
 # Terrarium
 
-I've chosen to make a complete native terrarium, where I get insects from around my house and place them in the terrarium. After the terrarium is working fine, I will get my spider. This way, I won't need to worry about feeding it by making a complete ecosystem.
+I have built the terrarium using sand as substrate, moss as a primary vegetation, a branch to give space to the spider to climb, glued pine trunks in the back wall to have space for web building. I included a grass as vegetation and a 3D printed swimming pool as a water source. Due to the greenhouse effect, I oppened holes in the side walls for cross-ventilation.
 
 [Picture of the Terrarium]
+
+# Workflow
+
+The workflow shows as depicted in the picture bellow. 
+
+[Picture of the workflow]
