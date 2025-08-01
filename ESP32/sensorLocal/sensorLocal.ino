@@ -1,8 +1,10 @@
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_TSL2561_U.h>
 
-// Pin definitions
-const int LDR_PIN = 5;
+// TSL2561 sensor address
+Adafruit_TSL2561_Unified tsl = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 12345);
 
 // AHT10 sensor object
 Adafruit_AHTX0 aht;
@@ -11,46 +13,48 @@ Adafruit_AHTX0 aht;
 const unsigned long READ_INTERVAL = 1000; // 10 seconds
 unsigned long lastReadTime = 0;
 
-int readLDR(int pin) {
-  long sum = 0;
-  for (int i = 0; i < 64; i++) {
-    sum += analogRead(pin);
-    delayMicroseconds(100);
+void readLuminosity() {
+  sensors_event_t event;
+  tsl.getEvent(&event);
+  if (event.light)
+  {
+    Serial.print(event.light);
+    Serial.println(" lux");
   }
-  return sum / 64;
+  else
+  {
+    Serial.println("Sensor overload");
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-
-  // Initialize LDR pin
-  pinMode(LDR_PIN, INPUT);
 
   // Initialize AHT10 sensor
   if (!aht.begin()) {
     Serial.println("Failed to initialize AHT10 sensor!");
     while (1);
   }
-  Serial.println("AHT10 sensor initialized.");
+  if (!tsl.begin()) {
+    Serial.println("Failed to initialize TSL sensor!");
+    while (1);
+  }
+  Serial.println("Sensors AHT10 and TSL initialized.");
+
+  tsl.setGain(TSL2561_GAIN_1X);
+  tsl.setIntegrationTime(TSL2561_INTEGRATIONTIME_101MS);
 }
+
 
 void loop() {
   unsigned long currentTime = millis();
 
-  // Check if 30 seconds have passed
+  // Check if 10 seconds have passed
   if (currentTime - lastReadTime >= READ_INTERVAL) {
     lastReadTime = currentTime;
 
-    // Read luminosity from LDR
-    int ldrValue = readLDR(LDR_PIN);
-
-    // Map LDR value (0-450) to percentage (0-100%)
-    int ldrPercent = map(ldrValue, 0, 4095, 100, 0);
-    if (ldrPercent > 100) ldrPercent = 100;
-    if (ldrPercent < 0) ldrPercent = 0;
-    Serial.print("Luminosity (LDR): ");
-    Serial.print(ldrValue);
-    Serial.println(" %");
+    // Read luminosity
+    readLuminosity();
 
     // Read temperature and humidity from AHT10
     sensors_event_t humidity, temp;
