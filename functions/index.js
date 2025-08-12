@@ -7,6 +7,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {Storage} = require("@google-cloud/storage");
+const path = require('path');
 
 // Initialize Firebase Admin SDK
 // This allows the function to interact with Firebase services.
@@ -16,13 +17,32 @@ admin.initializeApp();
 const storage = new Storage();
 
 // --- IMPORTANT: Retrieve configuration from environment variables ---
-// These variables are set using `firebase functions:config:set`
-const BUCKET_NAME = functions.config().app.bucket_name;
-const FOLDER_PATH = functions.config().app.folder_path;
+let BUCKET_NAME;
+let FOLDER_PATH;
 
-if (!BUCKET_NAME) {
-  console.error("BUCKET_NAME is not set.");
-  throw new Error("Missing BUCKET_NAME configuration.");
+if (process.env.FUNCTIONS_EMULATOR === 'true') {
+  // Load local .env file
+  // This is a simplified way to handle it, but a library like 'dotenv' is more robust
+  const fs = require('fs');
+  const dotenv = require('dotenv');
+  const envConfig = dotenv.parse(fs.readFileSync(path.resolve(__dirname, '.env')));
+  
+  BUCKET_NAME = envConfig.BUCKET_NAME;
+  FOLDER_PATH = envConfig.FOLDER_PATH;
+
+  if (!BUCKET_NAME) {
+    console.error("BUCKET_NAME is not set in the local .env file.");
+    throw new Error("Missing BUCKET_NAME configuration in .env.");
+  }
+} else {
+  // Use Firebase Functions config for deployed environment
+  BUCKET_NAME = functions.config().app.bucket_name;
+  FOLDER_PATH = functions.config().app.folder_path;
+
+  if (!BUCKET_NAME) {
+    console.error("BUCKET_NAME is not set in Cloud Functions environment configuration.");
+    throw new Error("Missing BUCKET_NAME configuration.");
+  }
 }
 
 // FOLDER_PATH is optional; a warning is logged if it's missing.
