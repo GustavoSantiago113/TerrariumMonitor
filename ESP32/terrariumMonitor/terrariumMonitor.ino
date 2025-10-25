@@ -59,11 +59,18 @@ void capturePhotoSaveLittleFS();
 void initLittleFS();
 void initWiFi();
 void initCamera();
+size_t fsTotalBytes();
+size_t fsUsedBytes();
+size_t fsFreeBytes();
+void printFSInfo(const char *tag = "FS");
+void deleteAllJpgFiles();
+bool ensureFsFree(size_t minFreeBytes);
 
 // ==== File System ====
 FileConfig media_file(FILE_PHOTO_PATH, file_operation_callback);
 File myFile;
 String uniquePath = "";
+String lastUploadedPath = ""; // track the file we most recently sent
 
 void file_operation_callback(File &file, const char *filename, file_operating_mode mode) {
   switch (mode) {
@@ -142,6 +149,12 @@ void setup() {
   // Initialize LittleFS
   Serial.println("Initializing LittleFS...");
   initLittleFS();
+  printFSInfo("Boot");
+  // Make sure we have enough headroom before first capture
+  // Target at least ~300KB free to accommodate a VGA/low-quality JPEG
+  if (!ensureFsFree(300 * 1024)) {
+    Serial.println("Warning: Not enough free FS space even after cleanup.");
+  }
 
   // Initialize sensors
   Serial.println("Initializing sensors...");
@@ -166,17 +179,8 @@ void loop() {
 
   // Every 2 minutes, send data and image
   if (app.ready() && (millis() - lastDataMillis >= sendInterval)) {
-    
-    Serial.println("Deleting old images...");
-    if (LittleFS.exists(uniquePath)) {
-        if (LittleFS.remove(uniquePath)) {
-            Serial.print("Successfully deleted: ");
-            Serial.println(uniquePath);
-        } else {
-            Serial.print("Failed to delete: ");
-            Serial.println(uniquePath);
-        }
-    }
+  // Proactively ensure we have free space for the next photo
+  ensureFsFree(250 * 1024);
 
     // Monitor sensors with error handling
     Serial.println("Reading sensors...");
@@ -217,6 +221,9 @@ void loop() {
     media_file.setFile(uniquePath.c_str(), file_operation_callback);
     Serial.print("Uploading file: ");
     Serial.println(uniquePath);
+
+    // Keep a copy to delete on successful upload callback
+    lastUploadedPath = uniquePath;
 
     String firebaseStoragePath = "terrarium_monitor_images/" + String(now) + ".jpg";
     storage.upload(aClient, FirebaseStorage::Parent(STORAGE_BUCKET_ID, firebaseStoragePath.c_str()), getFile(media_file), "image/jpg", processData, "⬆️  uploadTask");
@@ -353,15 +360,11 @@ void initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode = CAMERA_GRAB_LATEST;
   
-  if (psramFound()) {
-    config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-  } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-  }
+  // Reduce frame size and increase jpeg_quality number to minimize file size on FS
+  // Typical resulting JPEG size at VGA/quality ~20 is ~40-90KB depending on scene
+  config.frame_size = FRAMESIZE_VGA;    // 640x480
+  config.jpeg_quality = 17;             // 10=high quality (big), 63=lowest quality (small)
+  config.fb_count = 1;
   
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -398,23 +401,153 @@ void initCamera() {
 }
 
 // ==== Firebase Callbacks ====
+// Helper: robustly close and remove the tracked uploaded file (with retries)
+void deleteLocalUploadedFile(const String &path, const char *contextTag) {
+  if (path.length() == 0) return;
+  if (!LittleFS.exists(path)) return;
+
+  // Close global handle if it matches
+  if (myFile) {
+    String mfName = String(myFile.name());
+    if (!mfName.startsWith("/")) mfName = String("/") + mfName;
+    String p = path;
+    if (!p.startsWith("/")) p = String("/") + p;
+    if (mfName == p) {
+      myFile.close();
+      Serial.println("Closed global myFile handle before removal");
+    }
+  }
+
+  // Temporary open/close to help release FD
+  File tempF = LittleFS.open(path, "r");
+  if (tempF) {
+    tempF.close();
+    Serial.println("Temporary file handle opened+closed to help release FD");
+  }
+
+  const int maxAttempts = 8;
+  bool removed = false;
+  for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+    if (LittleFS.remove(path)) {
+      Serial.printf("[%s] Deleted local file: %s\n", contextTag, path.c_str());
+      removed = true;
+      break;
+    }
+    Serial.printf("[%s] Attempt %d: Failed to unlink '%s' - retrying...\n", contextTag, attempt, path.c_str());
+    // give Firebase/other libs a bit of time to release handles
+    for (int i = 0; i < 10; ++i) {
+      app.loop();
+      delay(50);
+    }
+  }
+  if (!removed) {
+    Serial.printf("[%s] Final failure: could not delete %s\n", contextTag, path.c_str());
+  }
+  // reset tracking regardless to avoid infinite retries
+  uniquePath = "";
+  lastUploadedPath = "";
+  printFSInfo(contextTag);
+}
+
 void processData(AsyncResult &aResult) {
-  if (!aResult.isResult())
-    return;
+  if (!aResult.isResult()) return;
+
   if (aResult.isEvent())
     Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.appEvent().message().c_str(), aResult.appEvent().code());
+
   if (aResult.isDebug())
     Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
+
   if (aResult.isError())
     Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
+
   if (aResult.downloadProgress())
     Firebase.printf("Downloaded, task: %s, %d%s (%d of %d)\n", aResult.uid().c_str(), aResult.downloadInfo().progress, "%", aResult.downloadInfo().downloaded, aResult.downloadInfo().total);
+
   if (aResult.uploadProgress()) {
     Firebase.printf("Uploaded, task: %s, %d%s (%d of %d)\n", aResult.uid().c_str(), aResult.uploadInfo().progress, "%", aResult.uploadInfo().uploaded, aResult.uploadInfo().total);
+    // Completed upload
     if (aResult.uploadInfo().total == aResult.uploadInfo().uploaded) {
       Firebase.printf("Upload task: %s, complete!✅️\n", aResult.uid().c_str());
       Serial.print("Download URL: ");
       Serial.println(aResult.uploadInfo().downloadUrl);
+      // If this upload corresponds to our media upload, delete the local file
+      if (lastUploadedPath.length() > 0 && String(aResult.uid()).indexOf("uploadTask") >= 0) {
+        deleteLocalUploadedFile(lastUploadedPath, "PostUpload");
+      }
     }
   }
+
+  // If the upload task failed, also delete the local file to avoid filling FS
+  if (aResult.isError()) {
+    String uid = aResult.uid();
+    if (uid.indexOf("uploadTask") >= 0) {
+      Serial.printf("Upload task error for uid: %s, deleting local file if present\n", uid.c_str());
+      if (lastUploadedPath.length() > 0) {
+        deleteLocalUploadedFile(lastUploadedPath, "PostUploadError");
+      }
+    }
+  }
+}
+
+// ==== FS Utilities ====
+size_t fsTotalBytes() {
+  return LittleFS.totalBytes();
+}
+
+size_t fsUsedBytes() {
+  return LittleFS.usedBytes();
+}
+
+size_t fsFreeBytes() {
+  size_t total = fsTotalBytes();
+  size_t used = fsUsedBytes();
+  return (total > used) ? (total - used) : 0;
+}
+
+void printFSInfo(const char *tag) {
+  size_t total = fsTotalBytes();
+  size_t used = fsUsedBytes();
+  size_t freeB = (total > used) ? (total - used) : 0;
+  Serial.printf("[%s] LittleFS - Total: %u bytes, Used: %u bytes, Free: %u bytes\n", tag, (unsigned)total, (unsigned)used, (unsigned)freeB);
+}
+
+void deleteAllJpgFiles() {
+  Serial.println("Cleaning up .jpg files in LittleFS...");
+  File root = LittleFS.open("/");
+  if (!root) {
+    Serial.println("Failed to open root directory for cleanup");
+    return;
+  }
+  File file = root.openNextFile();
+  int removed = 0;
+  while (file) {
+    String name = file.name();
+    if (!name.startsWith("/")) name = String("/") + name; // normalize path
+    file.close();
+    if (name.endsWith(".jpg")) {
+      if (LittleFS.remove(name)) {
+        removed++;
+        Serial.print("Removed: ");
+        Serial.println(name);
+      } else {
+        Serial.print("Failed to remove: ");
+        Serial.println(name);
+      }
+    }
+    file = root.openNextFile();
+  }
+  Serial.printf("Cleanup complete. Files removed: %d\n", removed);
+}
+
+bool ensureFsFree(size_t minFreeBytes) {
+  size_t freeB = fsFreeBytes();
+  if (freeB >= minFreeBytes) {
+    return true;
+  }
+  Serial.printf("Free space low (%u bytes). Target: %u. Attempting cleanup...\n", (unsigned)freeB, (unsigned)minFreeBytes);
+  deleteAllJpgFiles();
+  freeB = fsFreeBytes();
+  printFSInfo("AfterCleanup");
+  return freeB >= minFreeBytes;
 }
