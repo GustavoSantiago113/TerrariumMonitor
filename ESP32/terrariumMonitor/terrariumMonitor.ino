@@ -72,6 +72,11 @@ File myFile;
 String uniquePath = "";
 String lastUploadedPath = ""; // track the file we most recently sent
 
+// ==== Timeout ====
+unsigned long uploadStartMillis = 0;
+bool uploadInProgress = false;
+const unsigned long uploadTimeout = 20000;
+
 void file_operation_callback(File &file, const char *filename, file_operating_mode mode) {
   switch (mode) {
     case file_mode_open_read:
@@ -225,8 +230,21 @@ void loop() {
     // Keep a copy to delete on successful upload callback
     lastUploadedPath = uniquePath;
 
+    uploadStartMillis = millis();
+    uploadInProgress = true;
+    if (myFile) myFile.close();
+    
     String firebaseStoragePath = "terrarium_monitor_images/" + String(now) + ".jpg";
     storage.upload(aClient, FirebaseStorage::Parent(STORAGE_BUCKET_ID, firebaseStoragePath.c_str()), getFile(media_file), "image/jpg", processData, "⬆️  uploadTask");
+
+    // Watchdog for stuck uploads
+    if (uploadInProgress && millis() - uploadStartMillis > uploadTimeout) {
+      Serial.println("⚠️ Upload timeout reached — assuming failure, deleting local file");
+      if (lastUploadedPath.length() > 0) {
+        deleteLocalUploadedFile(lastUploadedPath, "UploadTimeout");
+      }
+      uploadInProgress = false;
+    }
   }
 }
 
@@ -363,7 +381,7 @@ void initCamera() {
   // Reduce frame size and increase jpeg_quality number to minimize file size on FS
   // Typical resulting JPEG size at VGA/quality ~20 is ~40-90KB depending on scene
   config.frame_size = FRAMESIZE_VGA;    // 640x480
-  config.jpeg_quality = 17;             // 10=high quality (big), 63=lowest quality (small)
+  config.jpeg_quality = 15;             // 10=high quality (big), 63=lowest quality (small)
   config.fb_count = 1;
   
   esp_err_t err = esp_camera_init(&config);
@@ -474,6 +492,7 @@ void processData(AsyncResult &aResult) {
       // If this upload corresponds to our media upload, delete the local file
       if (lastUploadedPath.length() > 0 && String(aResult.uid()).indexOf("uploadTask") >= 0) {
         deleteLocalUploadedFile(lastUploadedPath, "PostUpload");
+        uploadInProgress = false;
       }
     }
   }
@@ -485,6 +504,7 @@ void processData(AsyncResult &aResult) {
       Serial.printf("Upload task error for uid: %s, deleting local file if present\n", uid.c_str());
       if (lastUploadedPath.length() > 0) {
         deleteLocalUploadedFile(lastUploadedPath, "PostUploadError");
+        uploadInProgress = false;
       }
     }
   }
