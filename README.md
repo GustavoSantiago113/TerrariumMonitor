@@ -26,12 +26,12 @@
 - [X] Hinged Acrylic Box with holes for cross-ventilation
 - [X] Expanded Foam
 - [X] Glue for foam
-- [X] Tree Bark
 - [X] Black paper
 - [X] Transparent Tape
 - [X] Branches
-- [X] Sand
-- [X] Moss
+- [ ] Substrate
+- [ ] Moss
+- [ ] Plants
 
 ## Hardware
 
