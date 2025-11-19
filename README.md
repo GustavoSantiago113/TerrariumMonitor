@@ -1,10 +1,10 @@
 **<center>Terrarium Monitor</center>**
 
->An integration of ESP32-CAM, Firebase and Flutter to monitor my spider pet 
+>An integration of ESP32-CAM with custom HTTP API backend and Flutter to monitor my spider pet 
 
 <hr>
 
-![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)![Arduino](https://img.shields.io/badge/-Arduino-00979D?style=for-the-badge&logo=Arduino&logoColor=white)![Firebase](https://img.shields.io/badge/firebase-a08021?style=for-the-badge&logo=firebase&logoColor=ffcd34)![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E)![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)![Arduino](https://img.shields.io/badge/-Arduino-00979D?style=for-the-badge&logo=Arduino&logoColor=white)![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)![HTTP](https://img.shields.io/badge/HTTP-API-blue?style=for-the-badge)
 
 **<center>Table of Contents</center>**
 
@@ -14,7 +14,15 @@
 - [Objective](#objective)
 - [Workflow](#workflow)
 - [ESP32](#esp32)
-- [Firebase](#firebase)
+  - [Configuration](#configuration)
+  - [Pseudo-code](#pseudo-code)
+- [API Backend](#api-backend)
+  - [API Endpoint](#api-endpoint)
+    - [Authentication](#authentication)
+    - [Request Format](#request-format)
+    - [Example Request](#example-request)
+    - [Response](#response)
+    - [Backend Implementation Notes](#backend-implementation-notes)
 - [App](#app)
 - [PCB](#pcb)
 - [3D Files](#3d-files)
@@ -52,7 +60,7 @@
 
 # Objective
 
-Build an insect terrarium with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to the cloud and retrieved to a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs.
+Build an insect terrarium with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to a custom HTTP API backend and retrieved by a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs.
 
 ![Terrarium](README_Images/Terrarium.jpg)
 
@@ -62,74 +70,90 @@ The workflow works as depicted in the picture bellow.
 
 ![Workflow](README_Images/TerrariumMonitor.png)
 
-The ESP32 captures temperature, air humidity, light and takes images every 2 minutes. If the temperature or humidity is higher than the set threshold, the exhausting fans are turned on. If the light is below the set threshold, the LEDs are turned on. After this, the image is captured and all data is sent to Google Firebase.
+The ESP32 captures temperature, air humidity, light and takes images every 2 minutes. If the temperature or humidity is higher than the set threshold, the exhausting fans are turned on. If the light is below the set threshold, the LEDs are turned on. After this, the image is captured and all data is sent to a custom HTTP API backend.
 
-Google Firebase stores the images as files and the sensor-based data in a regular database. To not acumulate too much data, everything is deleted every 48 hours.
+The backend API (running at `********`) receives multipart form data containing:
+- Timestamp
+- Light intensity (lux)
+- Temperature (°C)
+- Humidity (%)
+- JPEG image file
 
-A Flutter-based app retrieves the images and sensor-based data and displays it in the screen in form of image and graphs.
+The API is secured with an API key (`*********` header). The backend stores the images and sensor data, making them available for the mobile app.
+
+A Flutter-based app retrieves the images and sensor-based data from the API and displays it in the screen in form of image and graphs.
 
 # ESP32
 
-The final code for the ESP32-CAM is in this [folder](ESP32/terrariumMonitor/). I split the actuators and sensors to make it more organized. All the sensitive information is on secrets.h (which I obviously did not push to Git) The pseudo-code for the ESP32 working is as below:
+The final code for the ESP32-CAM is in this [folder](ESP32/terrariumMonitor/). I split the actuators and sensors to make it more organized. All the sensitive information is on `secrets.h` (which I obviously did not push to Git). 
+
+## Configuration
+
+In `secrets.h`, define:
+```cpp
+#define WIFI_SSID "your_wifi_ssid"
+#define WIFI_PASSWORD "your_wifi_password"
+```
+
+The API endpoint and key are configured directly in the main sketch:
+```cpp
+const char* API_ENDPOINT = "***********";
+const char* API_KEY_HEADER = "*********";
+const char* API_KEY_VALUE = "****************";
+```
+
+## Pseudo-code
 
 ``` bash
 
-DEFINE feature flags (user auth, storage, filesystem, database)
-INCLUDE required libraries and headers
+INCLUDE required libraries (Arduino, WiFi, HTTPClient, Camera, LittleFS, Sensors)
 
 DEFINE camera pin assignments
 
-CREATE Firebase and WiFi objects
+CONFIGURE API endpoint and authentication
+    - API URL: ***********
+    - API Key header: *********
+    - API Key value: ****************
 
-SETUP timing variables for periodic data sending
+SETUP timing variables for periodic data sending (2 minutes)
 
-DECLARE variables for sensor readings
+DECLARE variables for sensor readings (lux, temperature, humidity)
 
 DECLARE function prototypes
-
-SETUP file system objects and file operation callback
-
-FUNCTION file_operation_callback(file, filename, mode):
-    SWITCH mode:
-        CASE read: open file for reading
-        CASE write: open file for writing
-        CASE append: open file for appending
-        CASE remove: delete file
-    ASSIGN opened file to global variable
 
 FUNCTION setup():
     Start serial communication
     Print startup message
-    Initialize WiFi
+    Test actuators (LEDs and motors)
+    Initialize WiFi and wait for connection
     Configure time via NTP
-    Initialize camera
-    Print camera initialized message
-    Initialize LittleFS
-    Format LittleFS (delete all files)
-    Initialize sensors
-    Initialize actuators (set pin modes and initial states)
-    Configure Firebase SSL client
-    Initialize Firebase app, database, and storage
+    Initialize camera with optimal settings
+    Initialize LittleFS filesystem
+    Initialize sensors (light, temperature, humidity)
     Print setup complete
 
 FUNCTION loop():
-    Run Firebase app loop
-    IF app is ready AND 2 minutes have passed:
+    IF 2 minutes have passed:
         Delete previous image file if it exists
         Read sensors (lux, temp, humidity)
         Print sensor values
-        Control actuators based on sensor values
-        Update last data send time
-        Print sending data message
-        Get current time
-        Send sensor data to Firebase Realtime Database
-        Capture photo and save to LittleFS
-        Update media_file to point to new photo
-        Print uploading file message
-        Upload photo to Firebase Storage
+        Control actuators based on sensor thresholds
+        Get current timestamp (via NTP or uptime fallback)
+        Capture photo and save to LittleFS with timestamp filename
+        Send data to API via HTTP POST multipart/form-data:
+            - timestamp
+            - lux value
+            - temperature value
+            - humidity value
+            - image file (JPEG)
+        IF upload successful:
+            Delete local image file to free space
+            Print success message
+        ELSE:
+            Print error message
 
 FUNCTION capturePhotoSaveLittleFS(photoPath):
-    Flush camera buffer
+    Flush camera buffer (3 warmup captures)
     Capture photo
     IF capture failed: print error and return
     Print photo file name
@@ -137,48 +161,127 @@ FUNCTION capturePhotoSaveLittleFS(photoPath):
     Open file for writing
     IF file open failed: print error and return
     Write photo data to file, flush, and close
-    Print file saved message
-    Verify file exists and size matches
-    IF verification passed: update media_file and print message
+    Print file saved message with size
+    Verify file exists and size matches written bytes
+    IF verification passed: print success
     ELSE: print warning
 
 FUNCTION initLittleFS():
-    Mount LittleFS, restart if failed
+    Mount LittleFS with format option, restart if failed
 
 FUNCTION initWiFi():
-    Connect to WiFi, print status and IP
+    Connect to WiFi with credentials from secrets.h
+    Wait for connection, print status and IP address
 
 FUNCTION initCamera():
-    Configure camera settings and pins
+    Configure camera settings (pins, resolution, quality)
+    IF PSRAM detected: use UXGA resolution
+    ELSE: use SVGA resolution
     Initialize camera, restart if failed
-    Set camera sensor parameters
+    Configure sensor parameters (brightness, contrast, exposure, etc.)
     Print camera initialized message
 
-FUNCTION processData(aResult):
-    IF not a result: return
-    IF event: print event info
-    IF debug: print debug info
-    IF error: print error info
-    IF download progress: print download progress
-    IF upload progress: print upload progress and download URL if complete
+FUNCTION sendDataToAPI(imagePath, lux, temp, humi, timestamp):
+    Open image file from LittleFS
+    IF file open failed: return false
+    Initialize HTTP client with API endpoint
+    Add API key header
+    Generate random boundary for multipart form data
+    Build multipart body with:
+        - Form field: timestamp
+        - Form field: lux
+        - Form field: temperature
+        - Form field: humidity
+        - Form field: image (binary JPEG data)
+    Send HTTP POST request manually:
+        - Send headers (Host, *********, Content-Type, Content-Length)
+        - Send form fields
+        - Stream image file in 512-byte chunks with progress logging
+        - Send closing boundary
+    Wait for server response (10s timeout)
+    Parse HTTP response code
+    IF code is 200 or 201: return true (success)
+    ELSE: print error and return false
 
 ```
 
-# Firebase
+# API Backend
 
-In the Google Firebase project set for this:
+The system uses a custom HTTP API backend running at `********`.
 
-* The sensor-based data is stored in a Realtime Database, under a collection. Under this collection, it has another sub-collections: humidity, luminosity and temperature. Each one of them stores it respective data. The doc name is related to the data collection's timestamp.
-* The images are stored in a Storage environment under a folder. Each image is named based on the data collection timestamp.
-* There is a function that activates every 48h, at 6 a.m. that deletes every data and image in the project.
+## API Endpoint
+
+**POST** `/api/upload`
+
+### Authentication
+Requests must include the `*********` header with value: `************************************`
+
+### Request Format
+Content-Type: `multipart/form-data`
+
+**Form fields:**
+- `timestamp` - Unix timestamp of the data collection
+- `lux` - Light intensity in lux (float)
+- `temperature` - Temperature in Celsius (float)
+- `humidity` - Humidity percentage (float)
+- `image` - JPEG image file
+
+### Example Request
+```http
+POST /api/upload HTTP/1.1
+Host: 10.0.0.50:8080
+*********: ************************************
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryXYZ
+
+------WebKitFormBoundaryXYZ
+Content-Disposition: form-data; name="timestamp"
+
+1700000000
+------WebKitFormBoundaryXYZ
+Content-Disposition: form-data; name="lux"
+
+450.50
+------WebKitFormBoundaryXYZ
+Content-Disposition: form-data; name="temperature"
+
+24.50
+------WebKitFormBoundaryXYZ
+Content-Disposition: form-data; name="humidity"
+
+65.30
+------WebKitFormBoundaryXYZ
+Content-Disposition: form-data; name="image"; filename="1700000000.jpg"
+Content-Type: image/jpeg
+
+[binary image data]
+------WebKitFormBoundaryXYZ--
+```
+
+### Response
+- **200 OK** or **201 Created** - Data successfully received and stored
+- **401 Unauthorized** - Invalid or missing API key
+- **400 Bad Request** - Invalid form data
+
+### Backend Implementation Notes
+The backend should:
+- Validate the API key
+- Parse multipart form data
+- Store images with timestamp-based filenames
+- Store sensor readings in a database (linked by timestamp)
+- Optionally implement data retention policies (e.g., delete data older than 48 hours)
 
 # App
 
-The App was made using Flutter and deployed locally. It retrieves the all the readings and image links. The last image and data is shown in the screen. All the data is used to plot line graphs. The 8 last images are shown in the screen. If the user wants to see more, he clicks in "See More" and 8 more will appear.
+The App was made using Flutter and deployed locally. It retrieves all the readings and images from the custom API backend. The last image and data is shown on the screen. All the data is used to plot line graphs. The 8 most recent images are shown on the screen. If the user wants to see more, they click "See More" and 8 more will appear.
+
+The app communicates with the backend API to:
+- Fetch the latest sensor readings (temperature, humidity, light)
+- Retrieve images with their associated timestamps
+- Display historical data in graph format
 
 ![Main Page](README_Images/Screenshot%20Main.jpg)
 
-When clicking on past images, the image will pop-up and be shown bigger in the screen, with the Date and Time, and data measured by the same time.
+When clicking on past images, the image will pop-up and be shown bigger on the screen, with the Date and Time, and data measured at the same time.
 
 ![Previous Data](README_Images/Screenshot%20Previous.jpg)
 

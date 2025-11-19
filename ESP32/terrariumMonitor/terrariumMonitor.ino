@@ -1,14 +1,8 @@
-#define ENABLE_USER_AUTH
-#define ENABLE_STORAGE
-#define ENABLE_FS
-#define ENABLE_DATABASE
-
 #include <Arduino.h>
-#include <FirebaseClient.h>
 #include <FS.h>
 #include <LittleFS.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "esp_camera.h"
 #include <Wire.h>
 #include "secrets.h"
@@ -34,14 +28,7 @@
 #define PCLK_GPIO_NUM  13
 #define LED_GPIO_NUM -1
 
-// ==== Firebase Objects ====
-UserAuth user_auth(API_KEY, USER_EMAIL, USER_PASS, 3000);
-FirebaseApp app;
-WiFiClientSecure ssl_client;
-using AsyncClient = AsyncClientClass;
-AsyncClient aClient(ssl_client);
-RealtimeDatabase Database;
-Storage storage;
+// ==== API and WiFi Configuration in secrets.h ====
 
 // ==== Timing ====
 unsigned long lastDataMillis = 0;
@@ -53,37 +40,20 @@ float lastTemp = 0;
 float lastHumi = 0;
 
 // ==== Function Prototypes ====
-void processData(AsyncResult &aResult);
-void file_operation_callback(File &file, const char *filename, file_operating_mode mode);
-void capturePhotoSaveLittleFS();
+void capturePhotoSaveLittleFS(const String &photoPath);
 void initLittleFS();
 void initWiFi();
 void initCamera();
+bool sendDataToAPI(const String &imagePath, float lux, float temp, float humi, time_t timestamp);
+size_t fsTotalBytes();
+size_t fsUsedBytes();
+size_t fsFreeBytes();
+void printFSInfo(const char *tag = "FS");
+void deleteAllJpgFiles();
+bool ensureFsFree(size_t minFreeBytes);
 
 // ==== File System ====
-FileConfig media_file(FILE_PHOTO_PATH, file_operation_callback);
-File myFile;
 String uniquePath = "";
-
-void file_operation_callback(File &file, const char *filename, file_operating_mode mode) {
-  switch (mode) {
-    case file_mode_open_read:
-      myFile = LittleFS.open(filename, "r");
-      break;
-    case file_mode_open_write:
-      myFile = LittleFS.open(filename, "w");
-      break;
-    case file_mode_open_append:
-      myFile = LittleFS.open(filename, "a");
-      break;
-    case file_mode_remove:
-      LittleFS.remove(filename);
-      break;
-    default:
-      break;
-  }
-  file = myFile;
-}
 
 // ==== Setup ====
 void setup() {
@@ -142,40 +112,37 @@ void setup() {
   // Initialize LittleFS
   Serial.println("Initializing LittleFS...");
   initLittleFS();
+  printFSInfo("Boot");
+  // Make sure we have enough headroom before first capture
+  // Target at least ~300KB free to accommodate a VGA/low-quality JPEG
+  if (!ensureFsFree(300 * 1024)) {
+    Serial.println("Warning: Not enough free FS space even after cleanup.");
+  }
 
   // Initialize sensors
   Serial.println("Initializing sensors...");
   initSensors();
-
-  // Firebase setup
-  Serial.println("Initializing Firebase...");
-  ssl_client.setInsecure();
-  ssl_client.setConnectionTimeout(1000);
-  ssl_client.setHandshakeTimeout(5);
-  initializeApp(aClient, app, getAuth(user_auth), processData, "🔐 authTask");
-  app.getApp<RealtimeDatabase>(Database);
-  Database.url(DATABASE_URL);
-  app.getApp<Storage>(storage);
 
   Serial.println("Setup complete!");
 }
 
 // ==== Main Loop ====
 void loop() {
-  app.loop();
-
   // Every 2 minutes, send data and image
-  if (app.ready() && (millis() - lastDataMillis >= sendInterval)) {
+  if (millis() - lastDataMillis >= sendInterval) {
+    // Proactively ensure we have free space for the next photo
+    ensureFsFree(250 * 1024);
     
-    Serial.println("Deleting old images...");
-    if (LittleFS.exists(uniquePath)) {
-        if (LittleFS.remove(uniquePath)) {
-            Serial.print("Successfully deleted: ");
-            Serial.println(uniquePath);
-        } else {
-            Serial.print("Failed to delete: ");
-            Serial.println(uniquePath);
-        }
+    // Delete old image if it exists
+    if (uniquePath.length() > 0 && LittleFS.exists(uniquePath)) {
+      Serial.println("Deleting old image...");
+      if (LittleFS.remove(uniquePath)) {
+        Serial.print("Successfully deleted: ");
+        Serial.println(uniquePath);
+      } else {
+        Serial.print("Failed to delete: ");
+        Serial.println(uniquePath);
+      }
     }
 
     // Monitor sensors with error handling
@@ -197,29 +164,34 @@ void loop() {
     controlActuators(lastLux, lastTemp, lastHumi);
     
     lastDataMillis = millis();
-    Serial.println("Sending data to Firebase...");
 
-    // Send sensor data
+    // Get current timestamp
     time_t now;
     struct tm timeinfo;
-    getLocalTime(&timeinfo);
-    now = mktime(&timeinfo);
-    Database.set<float>(aClient, "/terrarium_monitor_images/lux/" + String(now), lastLux, processData, "RTDB_Send_LUX");
-    Database.set<float>(aClient, "/terrarium_monitor_images/temp/" + String(now), lastTemp, processData, "RTDB_Send_TEMP");
-    Database.set<float>(aClient, "/terrarium_monitor_images/humi/" + String(now), lastHumi, processData, "RTDB_Send_HUMI");
+    if (getLocalTime(&timeinfo)) {
+      now = mktime(&timeinfo);
+    } else {
+      now = millis() / 1000; // Fallback to uptime if NTP fails
+    }
 
-    // Capture and send image
+    // Capture photo
     Serial.println("Capturing photo...");
     uniquePath = "/" + String(now) + ".jpg";
     capturePhotoSaveLittleFS(uniquePath);
 
-    // make absolutely sure FileConfig points to the new file right before upload
-    media_file.setFile(uniquePath.c_str(), file_operation_callback);
-    Serial.print("Uploading file: ");
-    Serial.println(uniquePath);
-
-    String firebaseStoragePath = "terrarium_monitor_images/" + String(now) + ".jpg";
-    storage.upload(aClient, FirebaseStorage::Parent(STORAGE_BUCKET_ID, firebaseStoragePath.c_str()), getFile(media_file), "image/jpg", processData, "⬆️  uploadTask");
+    // Send data and image to API
+    Serial.println("Sending data to API...");
+    if (sendDataToAPI(uniquePath, lastLux, lastTemp, lastHumi, now)) {
+      Serial.println("✅ Data sent successfully!");
+    } else {
+      Serial.println("❌ Failed to send data to API.");
+    }
+    // Delete the image
+      if (LittleFS.remove(uniquePath)) {
+        Serial.println("Image deleted.");
+        uniquePath = "";
+      }
+      printFSInfo("PostUpload");
   }
 }
 
@@ -288,11 +260,8 @@ void capturePhotoSaveLittleFS(const String &photoPath) {
       size_t sz = check.size();
       check.close();
       if (sz == written && written > 0) {
-        // Update media_file to point to the new photo (ensure FileConfig points to current file)
-        media_file.setFile(photoPath.c_str(), file_operation_callback);
-        Serial.print("media_file set to: ");
+        Serial.print("Photo saved successfully: ");
         Serial.println(photoPath);
-        delay(50); // small pause to ensure FS is stable before upload
         return;
       }
       Serial.printf("Warning: written %u bytes but file size is %u\n", (unsigned)written, (unsigned)sz);
@@ -397,24 +366,156 @@ void initCamera() {
   Serial.println("Camera initialized successfully");
 }
 
-// ==== Firebase Callbacks ====
-void processData(AsyncResult &aResult) {
-  if (!aResult.isResult())
+// ==== FS Utilities ====
+size_t fsTotalBytes() {
+  return LittleFS.totalBytes();
+}
+
+size_t fsUsedBytes() {
+  return LittleFS.usedBytes();
+}
+
+size_t fsFreeBytes() {
+  size_t total = fsTotalBytes();
+  size_t used = fsUsedBytes();
+  return (total > used) ? (total - used) : 0;
+}
+
+void printFSInfo(const char *tag) {
+  size_t total = fsTotalBytes();
+  size_t used = fsUsedBytes();
+  size_t freeB = (total > used) ? (total - used) : 0;
+  Serial.printf("[%s] LittleFS - Total: %u bytes, Used: %u bytes, Free: %u bytes\n", tag, (unsigned)total, (unsigned)used, (unsigned)freeB);
+}
+
+void deleteAllJpgFiles() {
+  Serial.println("Cleaning up .jpg files in LittleFS...");
+  File root = LittleFS.open("/");
+  if (!root) {
+    Serial.println("Failed to open root directory for cleanup");
     return;
-  if (aResult.isEvent())
-    Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.appEvent().message().c_str(), aResult.appEvent().code());
-  if (aResult.isDebug())
-    Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
-  if (aResult.isError())
-    Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
-  if (aResult.downloadProgress())
-    Firebase.printf("Downloaded, task: %s, %d%s (%d of %d)\n", aResult.uid().c_str(), aResult.downloadInfo().progress, "%", aResult.downloadInfo().downloaded, aResult.downloadInfo().total);
-  if (aResult.uploadProgress()) {
-    Firebase.printf("Uploaded, task: %s, %d%s (%d of %d)\n", aResult.uid().c_str(), aResult.uploadInfo().progress, "%", aResult.uploadInfo().uploaded, aResult.uploadInfo().total);
-    if (aResult.uploadInfo().total == aResult.uploadInfo().uploaded) {
-      Firebase.printf("Upload task: %s, complete!✅️\n", aResult.uid().c_str());
-      Serial.print("Download URL: ");
-      Serial.println(aResult.uploadInfo().downloadUrl);
+  }
+  File file = root.openNextFile();
+  int removed = 0;
+  while (file) {
+    String name = file.name();
+    if (!name.startsWith("/")) name = String("/") + name; // normalize path
+    file.close();
+    if (name.endsWith(".jpg")) {
+      if (LittleFS.remove(name)) {
+        removed++;
+        Serial.print("Removed: ");
+        Serial.println(name);
+      } else {
+        Serial.print("Failed to remove: ");
+        Serial.println(name);
+      }
     }
+    file = root.openNextFile();
+  }
+  root.close();
+  Serial.printf("Cleanup complete. Files removed: %d\n", removed);
+}
+
+bool ensureFsFree(size_t minFreeBytes) {
+  size_t freeB = fsFreeBytes();
+  if (freeB >= minFreeBytes) {
+    return true;
+  }
+  Serial.printf("Free space low (%u bytes). Target: %u. Attempting cleanup...\n", (unsigned)freeB, (unsigned)minFreeBytes);
+  deleteAllJpgFiles();
+  freeB = fsFreeBytes();
+  printFSInfo("AfterCleanup");
+  return freeB >= minFreeBytes;
+}
+
+// ==== API Upload Function ====
+bool sendDataToAPI(const String &imagePath, float lux, float temp, float humi, time_t timestamp) {
+  if (!LittleFS.exists(imagePath)) {
+    Serial.println("Image file does not exist!");
+    return false;
+  }
+
+  File imageFile = LittleFS.open(imagePath, "r");
+  if (!imageFile) {
+    Serial.println("Failed to open image file!");
+    return false;
+  }
+
+  size_t fileSize = imageFile.size();
+  Serial.printf("Image size: %u bytes\n", (unsigned)fileSize);
+
+  HTTPClient http;
+  http.begin(API_ENDPOINT);
+  http.addHeader(API_KEY_HEADER, API_KEY_VALUE);
+
+  // Generate boundary for multipart/form-data
+  String boundary = "----WebKitFormBoundary" + String(random(0xffff), HEX);
+  http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+  // Build multipart form data body
+  String bodyStart = "";
+  
+  // Add timestamp field
+  bodyStart += "--" + boundary + "\r\n";
+  bodyStart += "Content-Disposition: form-data; name=\"timestamp\"\r\n\r\n";
+  bodyStart += String(timestamp) + "\r\n";
+  
+  // Add luminosity field
+  bodyStart += "--" + boundary + "\r\n";
+  bodyStart += "Content-Disposition: form-data; name=\"luminosity\"\r\n\r\n";
+  bodyStart += String(lux, 2) + "\r\n";
+  
+  // Add temperature field
+  bodyStart += "--" + boundary + "\r\n";
+  bodyStart += "Content-Disposition: form-data; name=\"temperature\"\r\n\r\n";
+  bodyStart += String(temp, 2) + "\r\n";
+  
+  // Add humidity field
+  bodyStart += "--" + boundary + "\r\n";
+  bodyStart += "Content-Disposition: form-data; name=\"humidity\"\r\n\r\n";
+  bodyStart += String(humi, 2) + "\r\n";
+  
+  // Add image field header
+  bodyStart += "--" + boundary + "\r\n";
+  bodyStart += "Content-Disposition: form-data; name=\"images\"; filename=\"" + String(timestamp) + ".jpg\"\r\n";
+  bodyStart += "Content-Type: image/jpeg\r\n\r\n";
+  
+  String bodyEnd = "\r\n--" + boundary + "--\r\n";
+  
+  // Build complete multipart body
+  String completeBody = bodyStart;
+  
+  // Read image data and append to body
+  uint8_t buffer[1024];
+  while (imageFile.available()) {
+    size_t bytesRead = imageFile.read(buffer, sizeof(buffer));
+    for (size_t i = 0; i < bytesRead; i++) {
+      completeBody += (char)buffer[i];
+    }
+  }
+  imageFile.close();
+  
+  // Append body end
+  completeBody += bodyEnd;
+  
+  Serial.printf("Total payload size: %u bytes\n", completeBody.length());
+  
+  // Set timeout
+  http.setTimeout(30000); // 30 seconds
+  
+  // Send POST request
+  int httpCode = http.POST(completeBody);
+  
+  if (httpCode > 0) {
+    Serial.printf("HTTP Response code: %d\n", httpCode);
+    String response = http.getString();
+    Serial.println("Response: " + response);
+    http.end();
+    return (httpCode == 200 || httpCode == 201);
+  } else {
+    Serial.printf("HTTP request failed, error: %s\n", http.errorToString(httpCode).c_str());
+    http.end();
+    return false;
   }
 }
