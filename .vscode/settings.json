@@ -16,6 +16,7 @@
         "xutility": "cpp",
         "system_error": "cpp",
         "fstream": "cpp",
-        "xlocmes": "cpp"
+        "xlocmes": "cpp",
+        "xmemory": "cpp"
     }
 }

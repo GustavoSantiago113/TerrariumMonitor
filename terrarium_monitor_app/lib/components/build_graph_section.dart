@@ -4,13 +4,14 @@ import 'package:terrarium_monitor_app/components/build_sensors_icon.dart';
 import 'package:terrarium_monitor_app/services/change_notifier.dart';
 
 List<double> _getGraphData(AppState appState) {
+  final dataSource = appState.visibleReadings;
   switch (appState.selectedSensor) {
     case 'temperature':
-      return appState.allReadings.map((r) => r.temperature).toList();
+      return dataSource.map((r) => r.temperature).toList();
     case 'humidity':
-      return appState.allReadings.map((r) => r.humidity).toList();
+      return dataSource.map((r) => r.humidity).toList();
     case 'light':
-      return appState.allReadings.map((r) => r.light).toList();
+      return dataSource.map((r) => r.light).toList();
     default:
       return [];
   }

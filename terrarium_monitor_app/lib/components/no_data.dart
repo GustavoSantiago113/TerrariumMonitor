@@ -26,7 +26,6 @@ Widget noData(){
             Text(
               'No Data Available',
               style: TextStyle(
-                fontFamily: 'Montserrat',
                 fontWeight: FontWeight.bold,
                 fontSize: 28,
                 color: Colors.white,
@@ -38,7 +37,6 @@ Widget noData(){
             Text(
               'Please check if there is any data available or try again later.',
               style: TextStyle(
-                fontFamily: 'Montserrat',
                 fontSize: 16,
                 color: Colors.white70,
               ),

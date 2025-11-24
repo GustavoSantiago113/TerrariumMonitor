@@ -29,7 +29,6 @@ Widget buildMetricRow({
             Text(
               value,
               style: const TextStyle(
-                fontFamily: 'Montserrat',
                 fontSize: 20,
                 fontWeight: FontWeight.w500,
                 color: Colors.black87,
