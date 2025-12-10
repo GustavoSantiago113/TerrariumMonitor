@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:terrarium_monitor_app/models/terrarium_reading.dart';
 import 'package:terrarium_monitor_app/services/api_service.dart';
+import 'package:intl/intl.dart';
 
 class AppState extends ChangeNotifier {
   List<SensorReading> allReadings = [];
@@ -9,44 +10,60 @@ class AppState extends ChangeNotifier {
   String selectedSensor = 'temperature';
   bool isFetching = true;
   int visibleCount = 8;
+  int currentPage = 0;
+  bool hasMorePages = true;
+  bool isLoadingMore = false;
 
   Future<void> fetchData() async {
     isFetching = true;
+    currentPage = 0;
+    hasMorePages = true;
+    allApiRecords.clear();
     notifyListeners();
 
     try {
-      // Fetch all data from API (will fetch multiple pages until empty)
-      allApiRecords = await ApiService.fetchAllData(maxPages: 20);
+      print('🔄 Starting to fetch data from API...');
       
-      if (allApiRecords.isEmpty) {
-        throw Exception('No data available');
+      // 1) Fetch first page (page 0) for historical data
+      final firstPageRecords = await ApiService.fetchData(page: 0);
+      print('✅ Fetched ${firstPageRecords.length} records from page 0');
+
+      if (firstPageRecords.isEmpty) {
+        throw Exception('No data available from API');
       }
 
-      // Convert API records to SensorReading objects
-      allReadings = allApiRecords
-          .map((record) => record.toSensorReading())
-          .toList()
-        ..sort((a, b) => a.timestamp.compareTo(b.timestamp)); // Sort by time
+      allApiRecords = firstPageRecords;
+      hasMorePages = firstPageRecords.length == 8; // Assuming 8 records per page
 
-      // Get the latest record for the image
-      final latestRecord = allApiRecords.first; // API returns newest first
-      
+      // Keep image selection logic: pick the newest by createdAt
+      final latestRecord = allApiRecords.reduce((a, b) => a.createdAt.isAfter(b.createdAt) ? a : b);
       latestImage = ImageMonitor(
         imageUrl: latestRecord.primaryImageUrl,
         date: latestRecord.formattedDate,
         time: latestRecord.formattedTime,
       );
 
-      // Initialize visibleCount to a sensible default (don't exceed available readings)
-      visibleCount = allReadings.length < visibleCount ? allReadings.length : visibleCount;
+      // 2) Fetch last-24h data for graphs only (smaller, server-filtered response)
+      final last24h = await ApiService.fetchLast24h();
+      print('✅ Fetched ${last24h.length} records (last 24h) for graphs');
 
-    } catch (e) {
-      print('Error fetching data: $e');
-      latestImage = ImageMonitor(
-        imageUrl: 'https://placehold.co/400x250/E0E0E0/6C6C6C?text=Image+Not+Found',
-        date: 'N/A',
-        time: 'N/A',
-      );
+      // Convert last24h records to SensorReading objects and sort chronologically
+      allReadings = last24h.map((record) => record.toSensorReading()).toList()
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+      // Use the entire last-24h dataset for graphs by default
+      visibleCount = allReadings.length;
+
+      print('✅ Successfully prepared ${allReadings.length} sensor readings for graphs');
+
+    } catch (e, stackTrace) {
+      print('❌ Error fetching data from API: $e');
+      print('📋 Stack trace: $stackTrace');
+      
+      // No fallback - let UI show no data state
+      allApiRecords.clear();
+      allReadings.clear();
+      latestImage = null;
     }
 
     isFetching = false;
@@ -74,5 +91,33 @@ class AppState extends ChangeNotifier {
       visibleCount = newCount;
       notifyListeners();
     }
+  }
+  
+  /// Load next page of historical data
+  Future<void> loadNextPage() async {
+    if (isLoadingMore || !hasMorePages) return;
+    
+    isLoadingMore = true;
+    notifyListeners();
+    
+    try {
+      currentPage++;
+      final nextPageRecords = await ApiService.fetchData(page: currentPage);
+      print('✅ Fetched ${nextPageRecords.length} records from page $currentPage');
+      
+      if (nextPageRecords.isEmpty) {
+        hasMorePages = false;
+        currentPage--; // Revert page number
+      } else {
+        allApiRecords.addAll(nextPageRecords);
+        hasMorePages = nextPageRecords.length == 8; // Assuming 8 records per page
+      }
+    } catch (e) {
+      print('❌ Error loading next page: $e');
+      currentPage--; // Revert page number on error
+    }
+    
+    isLoadingMore = false;
+    notifyListeners();
   }
 }

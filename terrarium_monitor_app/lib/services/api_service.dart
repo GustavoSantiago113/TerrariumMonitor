@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:terrarium_monitor_app/models/terrarium_reading.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -12,32 +12,32 @@ class ApiService {
   /// Returns a list of ApiDataRecord objects
   static Future<List<ApiDataRecord>> fetchData({int page = 0}) async {
     try {
-      final url = Uri.parse('$baseUrl/api/data?page=$page');
+      final url = Uri.parse('$baseUrl/api/terrariumMonitor/data?page=$page');
+      
       final response = await http.get(
         url,
         headers: {
           'X-API-Key': apiKey,
         },
       );
-
+      
       if (response.statusCode == 200) {
         if (response.body.isEmpty) {
-          print('API returned an empty response.');
           return [];
         }
 
+        
         final dynamic decodedBody = json.decode(response.body);
         if (decodedBody is! List) {
-          throw Exception('Unexpected response format: ${response.body}');
+          throw Exception('Unexpected response format (not a list): ${response.body}');
         }
 
         final List<dynamic> jsonList = decodedBody;
         return jsonList.map((json) => ApiDataRecord.fromJson(json)).toList();
       } else {
-        throw Exception('Failed to load data: ${response.statusCode}');
+        throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching data from API: $e');
       rethrow;
     }
   }
@@ -62,6 +62,37 @@ class ApiService {
     return allRecords;
   }
 
+  /// Fetch data for the last 24 hours using the dedicated endpoint
+  /// Returns a list of ApiDataRecord objects
+  static Future<List<ApiDataRecord>> fetchLast24h() async {
+    try {
+      final url = Uri.parse('$baseUrl/api/terrariumMonitor/data/last24h');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'X-API-Key': apiKey,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) return [];
+
+        final dynamic decodedBody = json.decode(response.body);
+        if (decodedBody is! List) {
+          throw Exception('Unexpected response format (not a list): ${response.body}');
+        }
+
+        final List<dynamic> jsonList = decodedBody;
+        return jsonList.map((json) => ApiDataRecord.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load last24h data: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// Get the full image URL from a path
   static String getImageUrl(String imagePath) {
     if (imagePath.startsWith('http')) {
@@ -73,16 +104,16 @@ class ApiService {
 
 /// Model for API data record
 class ApiDataRecord {
-  final String id;
+  final String? id;  // Optional for last24h endpoint
   final String timestamp;
   final double luminosity;
   final double temperature;
   final double humidity;
-  final List<String> imagePaths;
+  final List<String> imagePaths;  // Empty for last24h endpoint
   final DateTime createdAt;
 
   ApiDataRecord({
-    required this.id,
+    this.id,
     required this.timestamp,
     required this.luminosity,
     required this.temperature,
@@ -93,7 +124,7 @@ class ApiDataRecord {
 
   factory ApiDataRecord.fromJson(Map<String, dynamic> json) {
     return ApiDataRecord(
-      id: json['id'] as String,
+      id: json['id'] as String?,  // Nullable for last24h endpoint
       timestamp: json['timestamp'] as String,
       luminosity: (json['luminosity'] as num).toDouble(),
       temperature: (json['temperature'] as num).toDouble(),
@@ -101,8 +132,28 @@ class ApiDataRecord {
       imagePaths: (json['image_paths'] as List<dynamic>? ?? [])
           .map((e) => e as String)
           .toList(),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : DateTime.now(),
     );
+  }
+
+  /// Parse `timestamp` field of format YYYYMMDD_HHMMSS into DateTime.
+  /// If parsing fails, fall back to `createdAt`.
+  DateTime get timestampAsDate {
+    try {
+      final ts = timestamp;
+      if (ts.length >= 15 && ts.contains('_')) {
+        final year = int.parse(ts.substring(0, 4));
+        final month = int.parse(ts.substring(4, 6));
+        final day = int.parse(ts.substring(6, 8));
+        final hour = int.parse(ts.substring(9, 11));
+        final minute = int.parse(ts.substring(11, 13));
+        final second = int.parse(ts.substring(13, 15));
+        return DateTime(year, month, day, hour, minute, second);
+      }
+    } catch (_) {}
+    return createdAt;
   }
 
   /// Convert to SensorReading for compatibility with existing code
@@ -111,7 +162,7 @@ class ApiDataRecord {
       temperature: temperature,
       humidity: humidity,
       light: luminosity,
-      timestamp: createdAt,
+      timestamp: timestampAsDate,
     );
   }
 
@@ -125,11 +176,11 @@ class ApiDataRecord {
 
   /// Get formatted date string
   String get formattedDate {
-    return DateFormat('yyyy-MM-dd').format(createdAt);
+    return DateFormat('yyyy-MM-dd').format(timestampAsDate);
   }
 
   /// Get formatted time string
   String get formattedTime {
-    return DateFormat('HH:mm').format(createdAt);
+    return DateFormat('HH:mm').format(timestampAsDate);
   }
 }

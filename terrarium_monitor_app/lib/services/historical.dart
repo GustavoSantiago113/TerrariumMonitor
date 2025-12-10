@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:terrarium_monitor_app/models/terrarium_reading.dart';
-import 'package:terrarium_monitor_app/services/change_notifier.dart';
 import 'package:terrarium_monitor_app/services/api_service.dart';
+import 'package:terrarium_monitor_app/services/change_notifier.dart';
 import 'package:terrarium_monitor_app/components/build_main_image_card.dart';
+
 
 class HistorySection extends StatefulWidget {
   final AppState appState;
@@ -16,14 +17,6 @@ class HistorySection extends StatefulWidget {
 class _HistorySectionState extends State<HistorySection> {
   static const String _placeholder =
       'https://placehold.co/400x250/E0E0E0/6C6C6C?text=Image+Not+Found';
-
-  late int _itemsToShow;
-
-  @override
-  void initState() {
-    super.initState();
-    _itemsToShow = widget.maxItems;
-  }
 
   void _openDetail(BuildContext context, ApiDataRecord record) {
     final imageMonitor = ImageMonitor(
@@ -72,14 +65,8 @@ class _HistorySectionState extends State<HistorySection> {
   }
 
   void _seeMore() {
-    final total = widget.appState.allReadings.length;
-    if (_itemsToShow >= total) return;
-    final next = _itemsToShow + widget.maxItems;
-    setState(() {
-      _itemsToShow = next > total ? total : next;
-    });
-    // Inform AppState about the expanded set so graphs can update.
-    widget.appState.setVisibleCount(_itemsToShow);
+    // Load next page from API instead of just showing more local items
+    widget.appState.loadNextPage();
   }
 
   @override
@@ -89,10 +76,10 @@ class _HistorySectionState extends State<HistorySection> {
       return const SizedBox.shrink();
     }
 
-    // API returns newest first, so just take the first _itemsToShow items
-    final items = apiRecords.take(_itemsToShow).toList();
+    // Show all available API records (will grow as user loads more pages)
+    final items = apiRecords;
 
-    final hasMore = _itemsToShow < apiRecords.length;
+    final hasMore = widget.appState.hasMorePages;
 
     return Column(
       children: [
@@ -123,15 +110,24 @@ class _HistorySectionState extends State<HistorySection> {
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Text(
-                          'SEE MORE',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      child: Center(
+                        child: widget.appState.isLoadingMore
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Text(
+                                'SEE MORE',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                       ),
                     ),
                   ),

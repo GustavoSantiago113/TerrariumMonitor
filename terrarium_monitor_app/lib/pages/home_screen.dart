@@ -17,9 +17,31 @@ class Home extends StatefulWidget{
 
 class _HomeState extends State<Home> {
   
+  late AppState appState;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Create a new AppState instance for this page only
+    appState = AppState();
+    // Trigger data fetch when page loads
+    appState.fetchData();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final appState = Provider.of<AppState>(context);
+    // Use ChangeNotifierProvider to provide the local appState
+    return ChangeNotifierProvider<AppState>.value(
+      value: appState,
+      child: Consumer<AppState>(
+        builder: (context, appState, child) {
+          return buildScaffold(appState);
+        },
+      ),
+    );
+  }
+
+  Widget buildScaffold(AppState appState) {
 
     return Scaffold(
         backgroundColor: const Color.fromARGB(255, 33, 33, 33),

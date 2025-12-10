@@ -1,7 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:terrarium_monitor_app/components/build_sensors_icon.dart';
 import 'package:terrarium_monitor_app/services/change_notifier.dart';
+import 'package:terrarium_monitor_app/components/build_sensors_icon.dart';
 
 List<double> _getGraphData(AppState appState) {
   final dataSource = appState.visibleReadings;
