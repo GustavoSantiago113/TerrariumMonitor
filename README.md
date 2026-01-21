@@ -66,11 +66,11 @@ Build an insect terrarium with image and sensor-based data monitoring and enviro
 
 # Workflow
 
-The workflow works as depicted in the picture bellow.
+The workflow works as depicted in the picture below.
 
 ![Workflow](README_Images/TerrariumMonitor.png)
 
-The ESP32 captures temperature, air humidity, light and takes images every 2 minutes. If the temperature or humidity is higher than the set threshold, the exhausting fans are turned on. If the light is below the set threshold, the LEDs are turned on. After this, the image is captured and all data is sent to a custom HTTP API backend.
+The ESP32 captures temperature, air humidity, and light every 2 minutes. If the temperature or humidity exceeds the set threshold, the exhaust fans are activated. If the light is below the set threshold, the LEDs are turned on. After this, the data is sent to a custom HTTP API backend. Every day, at 9 AM and 4 PM, the image is captured, and all the data is uploaded to the backend.
 
 The backend API (running at `********`) receives multipart form data containing:
 - Timestamp
@@ -134,11 +134,22 @@ FUNCTION setup():
 
 FUNCTION loop():
     IF 2 minutes have passed:
-        Delete previous image file if it exists
+        
         Read sensors (lux, temp, humidity)
         Print sensor values
         Control actuators based on sensor thresholds
-        Get current timestamp (via NTP or uptime fallback)
+        Get current timestamp (via NTP or uptime fallbacks
+        Send data to API via HTTP POST multipart/form-data:
+            - timestamp
+            - lux value
+            - temperature value
+            - humidity value
+        IF upload successful:
+            Print success message
+        ELSE:
+            Print error message
+    IF 9 AM or 4 PM:
+        Delete previous image file if it exists
         Capture photo and save to LittleFS with timestamp filename
         Send data to API via HTTP POST multipart/form-data:
             - timestamp
@@ -151,7 +162,6 @@ FUNCTION loop():
             Print success message
         ELSE:
             Print error message
-
 FUNCTION capturePhotoSaveLittleFS(photoPath):
     Flush camera buffer (3 warmup captures)
     Capture photo
@@ -268,16 +278,15 @@ The backend should:
 - Parse multipart form data
 - Store images with timestamp-based filenames
 - Store sensor readings in a database (linked by timestamp)
-- Optionally implement data retention policies (e.g., delete data older than 48 hours)
+- Optionally implement data retention policies (e.g., delete data when the image folder exceeds 10GB)
 
 # App
 
 The App was made using Flutter and deployed locally. It retrieves all the readings and images from the custom API backend. The last image and data is shown on the screen. All the data is used to plot line graphs. The 8 most recent images are shown on the screen. If the user wants to see more, they click "See More" and 8 more will appear.
 
 The app communicates with the backend API to:
-- Fetch the latest sensor readings (temperature, humidity, light)
-- Retrieve images with their associated timestamps
-- Display historical data in graph format
+- Retrieve images with their associated timestamps and sensor data
+- Display historical data (24h) in graph format
 
 ![Main Page](README_Images/Screenshot%20Main.jpg)
 
