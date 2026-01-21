@@ -34,6 +34,10 @@
 unsigned long lastDataMillis = 0;
 const unsigned long sendInterval = 2 * 60 * 1000; // 2 minutes
 
+// Track last scheduled upload to avoid duplicate uploads within the same hour/day
+int lastUploadDay = -1;
+int lastUploadHour = -1;
+
 // ==== Sensor Values ====
 float lastLux = 0;
 float lastTemp = 0;
@@ -130,27 +134,12 @@ void setup() {
 void loop() {
   // Every 2 minutes, send data and image
   if (millis() - lastDataMillis >= sendInterval) {
-    // Proactively ensure we have free space for the next photo
+    // Proactively ensure some free space for regular operation
     ensureFsFree(250 * 1024);
-    
-    // Delete old image if it exists
-    if (uniquePath.length() > 0 && LittleFS.exists(uniquePath)) {
-      Serial.println("Deleting old image...");
-      if (LittleFS.remove(uniquePath)) {
-        Serial.print("Successfully deleted: ");
-        Serial.println(uniquePath);
-      } else {
-        Serial.print("Failed to delete: ");
-        Serial.println(uniquePath);
-      }
-    }
 
-    // Monitor sensors with error handling
+    // Monitor sensors
     Serial.println("Reading sensors...");
-    
-    // Use external sensor reading function
     readSensors(lastLux, lastTemp, lastHumi);
-    
     Serial.print("✓ Light: ");
     Serial.print(lastLux);
     Serial.println(" lux");
@@ -160,38 +149,79 @@ void loop() {
     Serial.print(lastHumi);
     Serial.println("%");
 
-    // Use external actuator control function
+    // Actuate as before
     controlActuators(lastLux, lastTemp, lastHumi);
-    
+
     lastDataMillis = millis();
 
-    // Get current timestamp
+    // Get current timestamp / local time
     time_t now;
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
+    bool haveTime = getLocalTime(&timeinfo);
+    if (haveTime) {
       now = mktime(&timeinfo);
     } else {
       now = millis() / 1000; // Fallback to uptime if NTP fails
     }
 
-    // Capture photo
-    Serial.println("Capturing photo...");
-    uniquePath = "/" + String(now) + ".jpg";
-    capturePhotoSaveLittleFS(uniquePath);
-
-    // Send data and image to API
-    Serial.println("Sending data to API...");
-    if (sendDataToAPI(uniquePath, lastLux, lastTemp, lastHumi, now)) {
-      Serial.println("✅ Data sent successfully!");
-    } else {
-      Serial.println("❌ Failed to send data to API.");
+    // Decide whether to capture image locally: only at ~9:00 and ~16:00 once per day
+    bool shouldCapture = false;
+    if (haveTime) {
+      int currentHour = timeinfo.tm_hour;
+      int currentMin = timeinfo.tm_min;
+      int intervalMin = (int)(sendInterval / 60000);
+      if ((currentHour == 9 || currentHour == 16) && currentMin < intervalMin) {
+        if (!(lastUploadDay == timeinfo.tm_mday && lastUploadHour == currentHour)) {
+          shouldCapture = true;
+          lastUploadDay = timeinfo.tm_mday;
+          lastUploadHour = currentHour;
+        }
+      }
     }
-    // Delete the image
+
+    if (shouldCapture) {
+      Serial.println("Scheduled time reached — capturing photo and uploading image+data...");
+      // Delete old image if it exists
+      if (uniquePath.length() > 0 && LittleFS.exists(uniquePath)) {
+        Serial.println("Deleting old image...");
+        if (LittleFS.remove(uniquePath)) {
+          Serial.print("Successfully deleted: ");
+          Serial.println(uniquePath);
+        } else {
+          Serial.print("Failed to delete: ");
+          Serial.println(uniquePath);
+        }
+      }
+
+      uniquePath = "/" + String(now) + ".jpg";
+      capturePhotoSaveLittleFS(uniquePath);
+
+      // Upload image + data
+      Serial.println("Sending image+data to API...");
+      if (sendDataToAPI(uniquePath, lastLux, lastTemp, lastHumi, now)) {
+        Serial.println("✅ Image+data upload successful");
+      } else {
+        Serial.println("❌ Image+data upload failed");
+      }
+
+      // Remove local image after upload
       if (LittleFS.remove(uniquePath)) {
         Serial.println("Image deleted.");
         uniquePath = "";
       }
       printFSInfo("PostUpload");
+    } else {
+      // Not capture time: upload data-only
+      Serial.println("Uploading sensor data (no image)...");
+      if (sendSensorDataToAPI(lastLux, lastTemp, lastHumi, now)) {
+        Serial.println("✅ Data-only upload successful");
+      } else {
+        Serial.println("❌ Data-only upload failed");
+      }
+
+      Serial.println("Not capture time — skipping photo.");
+      printFSInfo("NoCaptureCycle");
+    }
   }
 }
 
@@ -427,6 +457,50 @@ bool ensureFsFree(size_t minFreeBytes) {
   freeB = fsFreeBytes();
   printFSInfo("AfterCleanup");
   return freeB >= minFreeBytes;
+}
+
+// ==== Data-only API Upload Function ====
+bool sendSensorDataToAPI(float lux, float temp, float humi, time_t timestamp) {
+  HTTPClient http;
+  http.begin(API_ENDPOINT);
+  http.addHeader(API_KEY_HEADER, API_KEY_VALUE);
+
+  // Use multipart/form-data to remain compatible with server expecting form fields
+  String boundary = "----WebKitFormBoundary" + String(random(0xffff), HEX);
+  http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+  String body = "";
+  body += "--" + boundary + "\r\n";
+  body += "Content-Disposition: form-data; name=\"timestamp\"\r\n\r\n";
+  body += String(timestamp) + "\r\n";
+
+  body += "--" + boundary + "\r\n";
+  body += "Content-Disposition: form-data; name=\"luminosity\"\r\n\r\n";
+  body += String(lux, 2) + "\r\n";
+
+  body += "--" + boundary + "\r\n";
+  body += "Content-Disposition: form-data; name=\"temperature\"\r\n\r\n";
+  body += String(temp, 2) + "\r\n";
+
+  body += "--" + boundary + "\r\n";
+  body += "Content-Disposition: form-data; name=\"humidity\"\r\n\r\n";
+  body += String(humi, 2) + "\r\n";
+
+  body += "--" + boundary + "--\r\n";
+
+  http.setTimeout(15000);
+  int httpCode = http.POST(body);
+  if (httpCode > 0) {
+    Serial.printf("HTTP Response code (data-only): %d\n", httpCode);
+    String response = http.getString();
+    Serial.println("Response: " + response);
+    http.end();
+    return (httpCode == 200 || httpCode == 201);
+  } else {
+    Serial.printf("HTTP request failed (data-only), error: %s\n", http.errorToString(httpCode).c_str());
+    http.end();
+    return false;
+  }
 }
 
 // ==== API Upload Function ====
