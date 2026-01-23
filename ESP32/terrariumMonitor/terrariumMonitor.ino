@@ -194,7 +194,14 @@ void loop() {
       }
 
       uniquePath = "/" + String(now) + ".jpg";
+      // Turn on light before photo
+      Serial.println("Turning on light for photo...");
+      digitalWrite(LED_PIN, HIGH);
+      delay(300); // allow light to stabilize
       capturePhotoSaveLittleFS(uniquePath);
+      // Turn off light after photo
+      digitalWrite(LED_PIN, LOW);
+      Serial.println("Light turned off after photo.");
 
       // Upload image + data
       Serial.println("Sending image+data to API...");
