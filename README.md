@@ -1,6 +1,6 @@
 **<center>Terrarium Monitor</center>**
 
->An integration of ESP32-CAM with custom HTTP API backend and Flutter to monitor my spider pet 
+>An integration of ESP32-CAM with a custom HTTP API backend and Flutter to monitor tree plant growing
 
 <hr>
 
