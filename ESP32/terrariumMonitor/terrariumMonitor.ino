@@ -377,9 +377,9 @@ void initCamera() {
   
   // Camera settings
   sensor_t * s = esp_camera_sensor_get();
-  s->set_brightness(s, 0);
-  s->set_contrast(s, 0);
-  s->set_saturation(s, 0);
+  s->set_brightness(s, 1); // Increased brightness (range: -2 to 2)
+  s->set_contrast(s, 0.5);
+  s->set_saturation(s, 0.5);
   s->set_special_effect(s, 0);
   s->set_whitebal(s, 1);
   s->set_awb_gain(s, 1);
