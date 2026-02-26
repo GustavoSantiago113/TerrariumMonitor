@@ -1,6 +1,6 @@
-**<center>Terrarium Monitor</center>**
+**<center>Tree Seedling Monitor</center>**
 
->An integration of ESP32-CAM with a custom HTTP API backend and Flutter to monitor tree plant growing
+>An integration of ESP32-CAM with a custom HTTP API backend and Flutter to monitor tree plant seedling growing
 
 <hr>
 
@@ -27,40 +27,13 @@
 - [PCB](#pcb)
 - [3D Files](#3d-files)
 
-# List of Materials
+# Bill of Materials
 
-## Terrarium
 
-- [X] Hinged Acrylic Box with holes for cross-ventilation
-- [X] Expanded Foam
-- [X] Glue for foam
-- [X] Tree Bark
-- [X] Black paper
-- [X] Transparent Tape
-- [X] Branches
-- [X] Sand
-- [X] Moss
-
-## Hardware
-
-- [X] ESP32-CAM
-- [X] Light Sensor
-- [X] White LEDs
-- [X] AHT10 temperature and humidity sensor
-- [X] Resistors
-- [X] Diodes
-- [X] Transistors
-- [X] Cable and charger for powering
-- [X] PCB
-- [X] Exhausting Fan
-- [X] 3D-printed case for the circuit
-- [X] 3D-printed structure for the White LEDs "strip"
-- [X] Wires
-- [X] JWT Connectors
 
 # Objective
 
-Build an insect terrarium with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to a custom HTTP API backend and retrieved by a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs.
+Build a tree seedling monitoring structure with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to a custom HTTP API backend and retrieved by a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs.
 
 ![Terrarium](README_Images/Terrarium.jpg)
 
