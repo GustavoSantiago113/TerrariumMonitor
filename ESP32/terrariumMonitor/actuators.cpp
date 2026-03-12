@@ -13,12 +13,22 @@ void controlActuators(float lux, float temp, float humi) {
         digitalWrite(LED_PIN, LOW);
     }
 
-    // Motor logic: If temp > 33 or humidity > 75, turn both motors on
+    // Motor1: exhaust fan control (unchanged behavior)
     if (temp > 33 || humi > 75) {
         digitalWrite(MOTOR1_PIN, HIGH);
-        digitalWrite(MOTOR2_PIN, HIGH);
     } else {
         digitalWrite(MOTOR1_PIN, LOW);
+    }
+
+    // Motor2: heater control with hysteresis
+    static bool heaterOn = false;
+    if (!heaterOn && temp <= HEATER_ON_TEMP) {
+        heaterOn = true;
+        digitalWrite(MOTOR2_PIN, HIGH);
+        Serial.println("Heater turned ON (MOTOR2_PIN)");
+    } else if (heaterOn && temp >= HEATER_OFF_TEMP) {
+        heaterOn = false;
         digitalWrite(MOTOR2_PIN, LOW);
+        Serial.println("Heater turned OFF (MOTOR2_PIN)");
     }
 }

@@ -55,6 +55,7 @@ size_t fsFreeBytes();
 void printFSInfo(const char *tag = "FS");
 void deleteAllJpgFiles();
 bool ensureFsFree(size_t minFreeBytes);
+void ensureWiFiConnected();
 
 // ==== File System ====
 String uniquePath = "";
@@ -148,6 +149,9 @@ void loop() {
     Serial.print("°C, Humidity: ");
     Serial.print(lastHumi);
     Serial.println("%");
+
+    // Ensure WiFi connectivity before any network operations
+    ensureWiFiConnected();
 
     // Actuate as before
     controlActuators(lastLux, lastTemp, lastHumi);
@@ -333,6 +337,27 @@ void initWiFi() {
   Serial.println("WiFi connected!");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+}
+
+// Ensure WiFi is connected; attempt reconnect if disconnected
+void ensureWiFiConnected() {
+  if (WiFi.status() == WL_CONNECTED) return;
+  Serial.println("WiFi disconnected — attempting reconnect...");
+  WiFi.disconnect(true);
+  WiFi.reconnect();
+  unsigned long start = millis();
+  const unsigned long timeout = 15000;
+  while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeout) {
+    Serial.print(".");
+    delay(500);
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi reconnected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi reconnect failed (will retry next cycle)");
+  }
 }
 
 void initCamera() {

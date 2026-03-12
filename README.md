@@ -1,43 +1,46 @@
-**<center>Tree Seedling Monitor</center>**
+<div align="center">
 
->An integration of ESP32-CAM with a custom HTTP API backend and Flutter to monitor tree plant seedling growing
+# 🌱 Tree Seedling Monitor
 
-<hr>
+**An integration of ESP32-CAM with a custom HTTP API backend and Flutter to monitor tree seedling growth.**
+
+</div>
 
 ![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)![Arduino](https://img.shields.io/badge/-Arduino-00979D?style=for-the-badge&logo=Arduino&logoColor=white)![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)![HTTP](https://img.shields.io/badge/HTTP-API-blue?style=for-the-badge)
 
-**<center>Table of Contents</center>**
+---
 
-- [List of Materials](#list-of-materials)
-  - [Terrarium](#terrarium)
-  - [Hardware](#hardware)
-- [Objective](#objective)
-- [Workflow](#workflow)
-- [ESP32](#esp32)
-  - [Configuration](#configuration)
-  - [Pseudo-code](#pseudo-code)
-- [API Backend](#api-backend)
-  - [API Endpoint](#api-endpoint)
-    - [Authentication](#authentication)
-    - [Request Format](#request-format)
-    - [Example Request](#example-request)
-    - [Response](#response)
-    - [Backend Implementation Notes](#backend-implementation-notes)
-- [App](#app)
-- [PCB](#pcb)
-- [3D Files](#3d-files)
+## 📜 Table of Contents
 
-# Bill of Materials
+- [🌱 Tree Seedling Monitor](#-tree-seedling-monitor)
+  - [📜 Table of Contents](#-table-of-contents)
+  - [💵 Bill of Materials](#-bill-of-materials)
+  - [🎯 Objective](#-objective)
+  - [🔗 Workflow](#-workflow)
+  - [🔌 ESP32](#-esp32)
+    - [⚙️ Configuration](#️-configuration)
+    - [🧠 Pseudo-code](#-pseudo-code)
+  - [🔙 API Backend](#-api-backend)
+    - [🛜 API Endpoint](#-api-endpoint)
+    - [🔓 Authentication](#-authentication)
+      - [📨 Request Format](#-request-format)
+      - [📤 Example Request](#-example-request)
+      - [📥 Response](#-response)
+      - [📝 Backend Implementation Notes](#-backend-implementation-notes)
+  - [📱 App](#-app)
+  - [⚡ PCB](#-pcb)
+  - [📂 3D Files](#-3d-files)
+
+## 💵 Bill of Materials
 
 
+## 🎯 Objective
 
-# Objective
-
-Build a tree seedling monitoring structure with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to a custom HTTP API backend and retrieved by a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs.
+Build a tree seedling monitoring structure with image and sensor-based data monitoring and environment automation. The image and sensor-based data is sent to a custom HTTP API backend and retrieved by a mobile app. The sensor-based data is used to turn on exhausting fans and LEDs. MOTOR2 is configured as a heater output (see ESP32 section).
 
 ![Terrarium](README_Images/Terrarium.jpg)
 
-# Workflow
+## 🔗 Workflow
 
 The workflow works as depicted in the picture below.
 
@@ -56,11 +59,11 @@ The API is secured with an API key (`*********` header). The backend stores the 
 
 A Flutter-based app retrieves the images and sensor-based data from the API and displays it in the screen in form of image and graphs.
 
-# ESP32
+## 🔌 ESP32
 
 The final code for the ESP32-CAM is in this [folder](ESP32/terrariumMonitor/). I split the actuators and sensors to make it more organized. All the sensitive information is on `secrets.h` (which I obviously did not push to Git). 
 
-## Configuration
+### ⚙️ Configuration
 
 In `secrets.h`, define:
 ```cpp
@@ -75,7 +78,7 @@ const char* API_KEY_HEADER = "*********";
 const char* API_KEY_VALUE = "****************";
 ```
 
-## Pseudo-code
+### 🧠 Pseudo-code
 
 ``` bash
 
@@ -188,18 +191,18 @@ FUNCTION sendDataToAPI(imagePath, lux, temp, humi, timestamp):
 
 ```
 
-# API Backend
+## 🔙 API Backend
 
 The system uses a custom HTTP API backend running at `********`.
 
-## API Endpoint
+### 🛜 API Endpoint
 
 **POST** `/api/upload`
 
-### Authentication
+### 🔓 Authentication
 Requests must include the `*********` header with value: `************************************`
 
-### Request Format
+#### 📨 Request Format
 Content-Type: `multipart/form-data`
 
 **Form fields:**
@@ -209,7 +212,7 @@ Content-Type: `multipart/form-data`
 - `humidity` - Humidity percentage (float)
 - `image` - JPEG image file
 
-### Example Request
+#### 📤 Example Request
 ```http
 POST /api/upload HTTP/1.1
 Host: 10.0.0.50:8080
@@ -240,12 +243,12 @@ Content-Type: image/jpeg
 ------WebKitFormBoundaryXYZ--
 ```
 
-### Response
+#### 📥 Response
 - **200 OK** or **201 Created** - Data successfully received and stored
 - **401 Unauthorized** - Invalid or missing API key
 - **400 Bad Request** - Invalid form data
 
-### Backend Implementation Notes
+#### 📝 Backend Implementation Notes
 The backend should:
 - Validate the API key
 - Parse multipart form data
@@ -253,7 +256,7 @@ The backend should:
 - Store sensor readings in a database (linked by timestamp)
 - Optionally implement data retention policies (e.g., delete data when the image folder exceeds 10GB)
 
-# App
+## 📱 App
 
 The App was made using Flutter and deployed locally. It retrieves all the readings and images from the custom API backend. The last image and data is shown on the screen. All the data is used to plot line graphs. The 8 most recent images are shown on the screen. If the user wants to see more, they click "See More" and 8 more will appear.
 
@@ -267,7 +270,7 @@ When clicking on past images, the image will pop-up and be shown bigger on the s
 
 ![Previous Data](README_Images/Screenshot%20Previous.jpg)
 
-# PCB
+## ⚡ PCB
 
 Under the [PCB](PCB) folder, you can find the schematics, gerber file and PCB layout for the PCB. I used a simple circuit with transistor, diode and resistor to activate and deactivate the LED and exhausting fans.
 
@@ -275,7 +278,7 @@ Under the [PCB](PCB) folder, you can find the schematics, gerber file and PCB la
 
 ![PCB](README_Images/PCB.png)
 
-# 3D Files
+## 📂 3D Files
 
 Under the [3D Files](3DFiles) folder, you can find all the necessary files to print the case for the PCB and the LEDs/AHT10 sensor encasing.
 
