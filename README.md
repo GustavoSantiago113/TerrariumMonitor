@@ -33,6 +33,19 @@
 
 ## 💵 Bill of Materials
 
+| Item | Quantity | Price |
+| ---- | -------- | ----- |
+| Acrilic Case | 1 | 19 |
+| Heater | 2 | 3 |
+| AHT10 | 1 | 1.5 |
+| Exhausting fan | 1 | 5.35 |
+| PCB | 1 | 0.4 |
+| ESP32CAM | 1 | 17 |
+| Purple LED | 1 | 2.5 |
+| 3D Printings | 1 | 1 |
+| 5V Font | 1 | 5.39 |
+| Wires and Connections | Many | 0.26 |
+| | **Total** | 55 |
 
 ## 🎯 Objective
 
